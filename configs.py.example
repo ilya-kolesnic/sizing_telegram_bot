@@ -1,0 +1,359 @@
+import os
+
+# Telegram Bot Configuration
+telegram_bot_token = 'XXXXXXXXXX:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+
+# Telegram Payment Provider Configuration
+payment_provider_name = 'BestCloudSolution'
+payment_provider_token = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+
+# OpenRouter API Configuration
+openrouter_api_key = os.getenv('OPENROUTER_API_KEY', '')
+openrouter_model = 'openai/gpt-oss-120b'
+openrouter_api_url = 'https://openrouter.ai/api/v1/chat/completions'
+
+# AI Settings
+min_additional_conditions_length = 20
+prompt_injection_detection_enabled = True
+
+# Folders
+logs_folder_path = 'logs'
+database_folder_path = 'database'
+download_folder_path = 'downloads'
+
+# Database
+sql_database = {
+    'db_name': 'mypostgresdb',
+    'user':'postgres',
+    'password': 'postgres',
+    'host':'localhost',
+    'port':'5432',
+}
+
+# Pricing (RUB per month, for educational purposes)
+pricing = {
+    'kafka': {
+        'broker': 15000,  # Per broker
+        'storage_gb': 10,  # Per GB
+    },
+    'kubernetes': {
+        'control_plane_node': 10000,  # Per node
+        'worker_node': 8000,  # Per node
+    },
+    'redis': {
+        'instance': 12000,  # Per instance
+        'ram_gb': 1500,  # Per GB RAM
+    },
+    'rabbitmq': {
+        'node': 10000,  # Per node
+        'ram_gb': 1000,  # Per GB RAM
+    }
+}
+
+# Admin IDs
+admin_ids = []
+
+# Service sizing parameters
+sizing_keywords = {
+    'kafka': ['kafka', 'кафка', 'кафку'],
+    'kubernetes': ['kubernetes', 'k8s', 'кубер', 'кубернетес'],
+    'redis': ['redis', 'редис'],
+    'rabbitmq': ['rabbitmq', 'rabbit', 'рэббит', 'раббит']
+}
+
+# Commands list
+help_list = ['/help', 'помощь', 'help']
+menu_list = ['/menu', 'меню', 'menu']
+
+# Banned users (for prompt injection detection)
+banned_users = set()
+
+
+# === КОНСТАНТЫ ДЛЯ ДИАПАЗОНОВ ===
+SERVICE_CONFIGS = {
+    'kafka': {
+        'display_name': '☕ Kafka',
+        'state_group': 'classes.KafkaSizing',
+        'calculator': 'calculate_kafka_sizing',
+        'parameters': {
+            'messages_per_sec': {
+                'order': 1,
+                'text': 'Введите количество сообщений в секунду:',
+                'ranges': [
+                    (100, '100 msg/s'),
+                    (1000, '1000 msg/s'),
+                    (5000, '5000 msg/s'),
+                    (10000, '10K msg/s')
+                ],
+                'validation': {
+                    'min': 1,
+                    'max': 100000,
+                    'type': int,
+                    'error': '❌ Некорректное значение. Введите число от 1 до 100000.'
+                },
+                'display': '{value} сообщений/сек'
+            },
+            'message_size_kb': {
+                'order': 2,
+                'text': 'Введите средний размер сообщения в КБ:',
+                'ranges': [
+                    (1, '1 КБ (мелкие)'),
+                    (10, '10 КБ (средние)'),
+                    (100, '100 КБ (крупные)')
+                ],
+                'validation': {
+                    'min': 0.1,
+                    'max': 1000,
+                    'type': float,
+                    'error': '❌ Некорректное значение. Введите число от 0.1 до 1000 КБ.'
+                },
+                'display': '{value} КБ/сообщение'
+            },
+            'retention_hours': {
+                'order': 3,
+                'text': 'Введите время хранения сообщений в часах:',
+                'ranges': [
+                    (24, '24 часа'),
+                    (168, '1 неделя'),
+                    (720, '1 месяц'),
+                    (8760, '1 год')
+                ],
+                'validation': {
+                    'min': 1,
+                    'max': 8760,
+                    'type': int,
+                    'error': '❌ Некорректное значение. Введите число от 1 до 8760.'
+                },
+                'display': '{value} часов хранения'
+            },
+            'replication_factor': {
+                'order': 4,
+                'text': 'Введите фактор репликации (обычно 3):',
+                'ranges': [
+                    (1, '1x (без репликации)'),
+                    (2, '2x (стандарт)'),
+                    (3, '3x (HA)'),
+                    (5, '5x (максимальная надёжность)')
+                ],
+                'validation': {
+                    'min': 1,
+                    'max': 5,
+                    'type': int,
+                    'error': '❌ Некорректное значение. Введите число от 1 до 5.'
+                },
+                'display': '{value}x репликация'
+            }
+        }
+    },
+    'kubernetes': {
+        'display_name': '⎈ Kubernetes',
+        'state_group': 'classes.K8sSizing',
+        'calculator': 'calculate_k8s_sizing',
+        'parameters': {
+            'pods_count': {
+                'order': 1,
+                'text': 'Введите планируемое количество подов:',
+                'ranges': [
+                    (10, '10 подов'),
+                    (50, '50 подов'),
+                    (100, '100 подов'),
+                    (500, '500 подов')
+                ],
+                'validation': {
+                    'min': 1,
+                    'max': 10000,
+                    'type': int,
+                    'error': '❌ Некорректное значение. Введите число от 1 до 10000.'
+                },
+                'display': '{value} подов'
+            },
+            'avg_cpu_per_pod': {
+                'order': 2,
+                'text': 'Введите средний CPU на под (в ядрах, например 0.5):',
+                'ranges': [
+                    (0.25, '0.25 CPU'),
+                    (0.5, '0.5 CPU'),
+                    (1, '1 CPU'),
+                    (2, '2 CPU')
+                ],
+                'validation': {
+                    'min': 0.1,
+                    'max': 32,
+                    'type': float,
+                    'error': '❌ Некорректное значение. Введите число от 0.1 до 32.'
+                },
+                'display': '{value} CPU/под'
+            },
+            'avg_ram_per_pod_gb': {
+                'order': 3,
+                'text': 'Введите среднюю RAM на под в ГБ:',
+                'ranges': [
+                    (0.5, '0.5 ГБ'),
+                    (1, '1 ГБ'),
+                    (2, '2 ГБ'),
+                    (4, '4 ГБ')
+                ],
+                'validation': {
+                    'min': 0.1,
+                    'max': 256,
+                    'type': float,
+                    'error': '❌ Некорректное значение. Введите число от 0.1 до 256.'
+                },
+                'display': '{value} ГБ RAM/под'
+            },
+            'high_availability': {
+                'order': 4,
+                'text': 'Требуется высокая доступность (HA)?',
+                'ranges': [
+                    (True, 'Да (HA)'),
+                    (False, 'Нет')
+                ],
+                'validation': {
+                    'type': bool,
+                    'error': '❌ Введите "да" или "нет".'
+                },
+                'display': 'HA: {value}',
+                'custom_parse': lambda text: text.lower() in ['да', 'yes', 'y', 'д', '+']
+            }
+        }
+    },
+    'redis': {
+        'display_name': '🗄️ Redis',
+        'state_group': 'classes.RedisSizing',
+        'calculator': 'calculate_redis_sizing',
+        'parameters': {
+            'dataset_size_gb': {
+                'order': 1,
+                'text': 'Введите размер датасета в ГБ:',
+                'ranges': [
+                    (1, '1 ГБ'),
+                    (10, '10 ГБ'),
+                    (50, '50 ГБ'),
+                    (100, '100 ГБ')
+                ],
+                'validation': {
+                    'min': 0.1,
+                    'max': 10000,
+                    'type': float,
+                    'error': '❌ Некорректное значение. Введите число от 0.1 до 10000.'
+                },
+                'display': '{value} ГБ данных'
+            },
+            'operations_per_sec': {
+                'order': 2,
+                'text': 'Введите количество операций в секунду:',
+                'ranges': [
+                    (1000, '1K ops/s'),
+                    (10000, '10K ops/s'),
+                    (50000, '50K ops/s'),
+                    (100000, '100K ops/s')
+                ],
+                'validation': {
+                    'min': 1,
+                    'max': 1000000,
+                    'type': int,
+                    'error': '❌ Некорректное значение. Введите число от 1 до 1000000.'
+                },
+                'display': '{value} ops/сек'
+            },
+            'high_availability': {
+                'order': 3,
+                'text': 'Требуется высокая доступность (HA)?',
+                'ranges': [
+                    (True, 'Да (HA)'),
+                    (False, 'Нет')
+                ],
+                'validation': {
+                    'type': bool,
+                    'error': '❌ Введите "да" или "нет".'
+                },
+                'display': 'HA: {value}',
+                'custom_parse': lambda text: text.lower() in ['да', 'yes', 'y', 'д', '+']
+            },
+            'persistence': {
+                'order': 4,
+                'text': 'Требуется персистентность данных?',
+                'ranges': [
+                    (True, 'Да'),
+                    (False, 'Нет')
+                ],
+                'validation': {
+                    'type': bool,
+                    'error': '❌ Введите "да" или "нет".'
+                },
+                'display': 'Персистентность: {value}',
+                'custom_parse': lambda text: text.lower() in ['да', 'yes', 'y', 'д', '+']
+            }
+        }
+    },
+    'rabbitmq': {
+        'display_name': '🐰 RabbitMQ',
+        'state_group': 'classes.RabbitMQSizing',
+        'calculator': 'calculate_rabbitmq_sizing',
+        'parameters': {
+            'messages_per_sec': {
+                'order': 1,
+                'text': 'Введите количество сообщений в секунду:',
+                'ranges': [
+                    (100, '100 msg/s'),
+                    (1000, '1K msg/s'),
+                    (5000, '5K msg/s'),
+                    (10000, '10K msg/s')
+                ],
+                'validation': {
+                    'min': 1,
+                    'max': 100000,
+                    'type': int,
+                    'error': '❌ Некорректное значение. Введите число от 1 до 100000.'
+                },
+                'display': '{value} сообщений/сек'
+            },
+            'message_size_kb': {
+                'order': 2,
+                'text': 'Введите средний размер сообщения в КБ:',
+                'ranges': [
+                    (1, '1 КБ'),
+                    (10, '10 КБ'),
+                    (100, '100 КБ')
+                ],
+                'validation': {
+                    'min': 0.1,
+                    'max': 1000,
+                    'type': float,
+                    'error': '❌ Некорректное значение. Введите число от 0.1 до 1000.'
+                },
+                'display': '{value} КБ/сообщение'
+            },
+            'queue_depth': {
+                'order': 3,
+                'text': 'Введите глубину очереди (среднее количество сообщений):',
+                'ranges': [
+                    (1000, '1K сообщений'),
+                    (10000, '10K сообщений'),
+                    (100000, '100K сообщений')
+                ],
+                'validation': {
+                    'min': 1,
+                    'max': 10000000,
+                    'type': int,
+                    'error': '❌ Некорректное значение. Введите число от 1 до 10000000.'
+                },
+                'display': '{value} сообщений в очереди'
+            },
+            'high_availability': {
+                'order': 4,
+                'text': 'Требуется высокая доступность (HA)?',
+                'ranges': [
+                    (True, 'Да (HA)'),
+                    (False, 'Нет')
+                ],
+                'validation': {
+                    'type': bool,
+                    'error': '❌ Введите "да" или "нет".'
+                },
+                'display': 'HA: {value}',
+                'custom_parse': lambda text: text.lower() in ['да', 'yes', 'y', 'д', '+']
+            }
+        }
+    }
+}
